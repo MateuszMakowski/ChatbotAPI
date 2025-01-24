@@ -13,21 +13,59 @@ public class ChatController : ControllerBase
     {
         _context = context;
     }
+    
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetChatSessions()
+    {
+        var sessions = await _context.ChatSessions
+            .OrderByDescending(s => s.CreatedAt)
+            .ToListAsync();
+        return Ok(sessions);
+    }
+
+    [HttpPost("sessions")]
+    public async Task<IActionResult> CreateChatSession([FromBody] string name)
+    {
+        var session = new ChatSession { Name = name };
+        _context.ChatSessions.Add(session);
+        await _context.SaveChangesAsync();
+
+        return Ok(session);
+    }
 
     [HttpGet("history")]
-    public async Task<IActionResult> GetChatHistory()
+    public async Task<IActionResult> GetChatHistory(int sessionId)
     {
-        var messages = await _context.ChatMessages.OrderBy(m => m.Timestamp).ToListAsync();
+        var messages = await _context.ChatMessages
+            .Where(m => m.ChatSessionId == sessionId)
+            .OrderBy(m => m.Timestamp)
+            .ToListAsync();
         return Ok(messages);
     }
 
     [HttpPost("send")]
-    public async Task<IActionResult> SendMessage([FromBody] string userMessage)
+    public async Task<IActionResult> SendMessage(int sessionId, [FromBody] string userMessage)
     {
+        
+        var session = await _context.ChatSessions.OrderByDescending(s => s.CreatedAt).FirstOrDefaultAsync();
+
+        // Jeśli brak sesji, utwórz nową
+        if (session == null)
+        {
+            session = new ChatSession
+            {
+                Name = $"Chat {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}" // Nadaj dynamiczną nazwę
+            };
+
+            _context.ChatSessions.Add(session);
+            await _context.SaveChangesAsync();
+        }
+        
         var botResponse = GenerateResponse(userMessage);
 
         var message = new ChatMessage
         {
+            ChatSessionId = sessionId,
             UserMessage = userMessage,
             BotResponse = botResponse
         };
@@ -35,7 +73,11 @@ public class ChatController : ControllerBase
         _context.ChatMessages.Add(message);
         await _context.SaveChangesAsync();
 
-        return Ok(message);
+        return Ok(new
+        {
+            SessionId = session.Id,
+            Message = message
+        });
     }
     
     [HttpPut("update/{id}")]
